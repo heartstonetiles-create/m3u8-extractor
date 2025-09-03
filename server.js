@@ -6,21 +6,22 @@ const app = express();
 
 app.get("/", (req, res) => {
   res.json({
-    message: "M3U8 Extractor (with merged playlist export)",
+    message: "M3U8 Extractor (with debug logging)",
     usage: "GET /getm3u8?url=YOUR_EMBED_URL&format=file"
   });
 });
 
 app.get("/getm3u8", async (req, res) => {
   const targetUrl = req.query.url;
-  const format = req.query.format || "json"; // default JSON
+  const format = req.query.format || "json";
 
   if (!targetUrl) {
     return res.json({ error: "Missing ?url parameter" });
   }
 
+  let browser;
   try {
-    const browser = await puppeteer.launch({
+    browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
@@ -32,10 +33,19 @@ app.get("/getm3u8", async (req, res) => {
     let m3u8Links = [];
     let tsLinks = [];
 
+    // Debug: log every request to console (shows in Render logs)
     page.on("request", (req) => {
       const url = req.url();
-      if (url.includes(".m3u8")) m3u8Links.push(url);
-      if (url.includes(".ts")) tsLinks.push(url);
+      console.log("REQ:", url);
+
+      if (url.includes(".m3u8")) {
+        console.log("🎯 Found M3U8:", url);
+        m3u8Links.push(url);
+      }
+      if (url.includes(".ts")) {
+        console.log("🎯 Found TS segment:", url);
+        tsLinks.push(url);
+      }
     });
 
     await page.setExtraHTTPHeaders({
@@ -44,8 +54,16 @@ app.get("/getm3u8", async (req, res) => {
       Referer: "https://embedsports.top/"
     });
 
-    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForTimeout(10000); // watch requests for 10s
+    // Hard timeout safeguard
+    await Promise.race([
+      (async () => {
+        await page.goto(targetUrl, { waitUntil: "networkidle2", timeout: 15000 });
+        await page.waitForTimeout(5000);
+      })(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout: no streams detected")), 20000)
+      )
+    ]);
 
     await browser.close();
 
@@ -58,12 +76,9 @@ app.get("/getm3u8", async (req, res) => {
       res.setHeader("Content-Disposition", "attachment; filename=stream.m3u8");
 
       if (uniqueM3u8.length > 0) {
-        // Direct playlist available
         return res.send(uniqueM3u8[0]);
       }
-
       if (uniqueTs.length > 0) {
-        // Build custom playlist from .ts
         const playlist = [
           "#EXTM3U",
           "#EXT-X-VERSION:3",
@@ -72,10 +87,8 @@ app.get("/getm3u8", async (req, res) => {
           ...uniqueTs.slice(0, 20).map((url) => `#EXTINF:6.0,\n${url}`),
           "#EXT-X-ENDLIST"
         ].join("\n");
-
         return res.send(playlist);
       }
-
       return res.send("#EXTM3U\n# No streams detected");
     }
 
@@ -94,11 +107,12 @@ app.get("/getm3u8", async (req, res) => {
       ].join("\n");
     }
     if (!uniqueM3u8.length && !uniqueTs.length) {
-      result.error = "No .m3u8 or .ts links detected in 10s window.";
+      result.error = "No .m3u8 or .ts links detected.";
     }
 
     res.json(result);
   } catch (err) {
+    if (browser) await browser.close().catch(() => {});
     res.json({ error: err.message });
   }
 });
