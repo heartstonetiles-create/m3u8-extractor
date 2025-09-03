@@ -6,13 +6,16 @@ const app = express();
 
 app.get("/", (req, res) => {
   res.json({
-    message: "M3U8 Extractor (with frame sniffing) is running!",
-    usage: "GET /getm3u8?url=YOUR_EMBED_URL"
+    message: "M3U8 Extractor running with puppeteer-core + chromium",
+    usage: "GET /getm3u8?url=YOUR_EMBED_URL[&raw=1][&force=1]",
   });
 });
 
 app.get("/getm3u8", async (req, res) => {
   const targetUrl = req.query.url;
+  const raw = req.query.raw === "1";    // JSON debug mode
+  const force = req.query.force === "1"; // Force always return .m3u8 file
+
   if (!targetUrl) return res.json({ error: "Missing ?url parameter" });
 
   let browser;
@@ -24,52 +27,104 @@ app.get("/getm3u8", async (req, res) => {
     });
     const page = await browser.newPage();
 
-    // Spoof headers
     await page.setExtraHTTPHeaders({
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36",
-      "Referer": targetUrl,
+      Referer: targetUrl,
     });
 
     let m3u8Found = null;
+    let tsSegments = [];
 
-    // Capture ALL requests
     function captureRequests(pageOrFrame) {
       pageOrFrame.on("request", (req) => {
         const url = req.url();
         console.log("REQ:", url);
 
-        if (url.includes(".m3u8")) {
-          console.log("🎯 Found M3U8:", url);
-          m3u8Found = url;
-        }
-        if (url.includes(".ts")) {
-          console.log("🎯 Found TS:", url);
-        }
+        if (url.includes(".m3u8")) m3u8Found = url;
+        if (url.includes(".ts")) tsSegments.push(url);
       });
     }
 
     captureRequests(page);
-
     await page.goto(targetUrl, {
       waitUntil: "networkidle2",
       timeout: 60000,
     });
 
-    // Also sniff every iframe/frame
     page.frames().forEach((frame) => captureRequests(frame));
 
-    // Wait up to 20 seconds for streams
-    await page.waitForTimeout(20000);
+    // Try clicking play button
+    try {
+      await page.evaluate(() => {
+        const btn =
+          document.querySelector("button[aria-label='Play'], .vjs-big-play-button, .play, video");
+        if (btn) (btn as HTMLElement).click();
+      });
+    } catch (e) {
+      console.log("⚠️ No play button found");
+    }
 
+    await page.waitForTimeout(20000);
     await browser.close();
 
+    // JSON debug mode
+    if (raw) {
+      if (m3u8Found) return res.json({ m3u8: m3u8Found });
+      if (tsSegments.length > 0) return res.json({ ts: tsSegments });
+      return res.json({ error: "No .m3u8 or .ts links detected" });
+    }
+
+    // Force always return .m3u8 text
+    if (force) {
+      const playlist = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:3",
+        "#EXT-X-TARGETDURATION:10",
+        "#EXT-X-MEDIA-SEQUENCE:0",
+      ];
+
+      if (m3u8Found) {
+        playlist.push(`#EXTINF:10.0,`);
+        playlist.push(m3u8Found);
+      } else {
+        tsSegments.forEach((url) => {
+          playlist.push("#EXTINF:10.0,");
+          playlist.push(url);
+        });
+      }
+
+      playlist.push("#EXT-X-ENDLIST");
+
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      res.setHeader("Content-Disposition", "inline; filename=generated.m3u8");
+      return res.send(playlist.join("\n"));
+    }
+
+    // Normal mode
     if (m3u8Found) {
-      res.json({ m3u8: m3u8Found });
+      res.redirect(m3u8Found);
+    } else if (tsSegments.length > 0) {
+      const playlist = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:3",
+        "#EXT-X-TARGETDURATION:10",
+        "#EXT-X-MEDIA-SEQUENCE:0",
+      ];
+
+      tsSegments.forEach((url) => {
+        playlist.push("#EXTINF:10.0,");
+        playlist.push(url);
+      });
+
+      playlist.push("#EXT-X-ENDLIST");
+
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      res.setHeader("Content-Disposition", "inline; filename=generated.m3u8");
+      res.send(playlist.join("\n"));
     } else {
       res.json({
-        error:
-          "No .m3u8 link detected. Possibly hidden in JS or requires user interaction.",
+        error: "No .m3u8 or .ts links detected. Could be WebRTC or hidden deeper.",
       });
     }
   } catch (err) {
