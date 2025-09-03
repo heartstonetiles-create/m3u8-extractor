@@ -1,13 +1,17 @@
 {
   "name": "m3u8-extractor",
   "version": "1.0.0",
-  "main": "server.js",
+  "description": "M3U8 Extractor with Puppeteer on Express",
   "type": "module",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^22.0.0"
+    "puppeteer": "^21.3.0"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
