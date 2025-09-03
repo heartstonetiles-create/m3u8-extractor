@@ -1,11 +1,12 @@
 import express from "express";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 const app = express();
 
 app.get("/", (req, res) => {
   res.json({
-    message: "M3U8 Extractor with Puppeteer is running!",
+    message: "M3U8 Extractor is running with puppeteer-core + chromium!",
     usage: "GET /getm3u8?url=YOUR_EMBED_URL"
   });
 });
@@ -18,20 +19,15 @@ app.get("/getm3u8", async (req, res) => {
 
   try {
     const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-zygote",
-        "--disable-gpu"
-      ]
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless
     });
 
     const page = await browser.newPage();
 
-    // Fake headers to bypass some blocks
+    // Fake headers to bypass some restrictions
     await page.setExtraHTTPHeaders({
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/115 Safari/537.36",
@@ -40,10 +36,9 @@ app.get("/getm3u8", async (req, res) => {
 
     await page.goto(targetUrl, { waitUntil: "networkidle2" });
 
-    // Grab page HTML
     const html = await page.content();
 
-    // Look for .m3u8 link
+    // Extract .m3u8 link
     const regex = /(https?:\/\/[^\s"']+\.m3u8[^\s"']*)/i;
     const match = html.match(regex);
 
@@ -64,4 +59,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
-
