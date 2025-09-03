@@ -8,12 +8,33 @@ app.get("/", (req, res) => {
   res.json({
     message: "M3U8 Extractor running with puppeteer-core + chromium",
     usage: "GET /getm3u8?url=YOUR_EMBED_URL[&raw=1][&force=1]",
+    debug: "GET /debug?url=YOUR_EMBED_URL",
   });
 });
 
+// Utility: Run with timeout
+async function runWithTimeout(promise, ms, browser) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(async () => {
+      if (browser) await browser.close();
+      reject(new Error(`⏱ Timeout: operation took longer than ${ms / 1000}s`));
+    }, ms);
+
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 app.get("/getm3u8", async (req, res) => {
   const targetUrl = req.query.url;
-  const raw = req.query.raw === "1";    // JSON debug mode
+  const raw = req.query.raw === "1"; // JSON debug mode
   const force = req.query.force === "1"; // Force always return .m3u8 file
 
   if (!targetUrl) return res.json({ error: "Missing ?url parameter" });
@@ -25,6 +46,7 @@ app.get("/getm3u8", async (req, res) => {
       executablePath: await chromium.executablePath,
       headless: chromium.headless,
     });
+
     const page = await browser.newPage();
 
     await page.setExtraHTTPHeaders({
@@ -40,17 +62,21 @@ app.get("/getm3u8", async (req, res) => {
       pageOrFrame.on("request", (req) => {
         const url = req.url();
         console.log("REQ:", url);
-
         if (url.includes(".m3u8")) m3u8Found = url;
         if (url.includes(".ts")) tsSegments.push(url);
       });
     }
 
     captureRequests(page);
-    await page.goto(targetUrl, {
-      waitUntil: "networkidle2",
-      timeout: 60000,
-    });
+
+    await runWithTimeout(
+      page.goto(targetUrl, {
+        waitUntil: "networkidle2",
+        timeout: 60000,
+      }),
+      30000,
+      browser
+    );
 
     page.frames().forEach((frame) => captureRequests(frame));
 
@@ -61,11 +87,11 @@ app.get("/getm3u8", async (req, res) => {
           document.querySelector("button[aria-label='Play'], .vjs-big-play-button, .play, video");
         if (btn) (btn as HTMLElement).click();
       });
-    } catch (e) {
+    } catch {
       console.log("⚠️ No play button found");
     }
 
-    await page.waitForTimeout(20000);
+    await page.waitForTimeout(15000);
     await browser.close();
 
     // JSON debug mode
@@ -133,7 +159,53 @@ app.get("/getm3u8", async (req, res) => {
   }
 });
 
+// Debug endpoint with timeout
+app.get("/debug", async (req, res) => {
+  const targetUrl = req.query.url;
+  if (!targetUrl) return res.json({ error: "Missing ?url parameter" });
+
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
+    });
+
+    const page = await browser.newPage();
+    await page.setExtraHTTPHeaders({
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36",
+      Referer: targetUrl,
+    });
+
+    const log = [];
+
+    page.on("request", (req) => {
+      log.push({ type: "request", url: req.url(), method: req.method() });
+    });
+
+    page.on("response", (resp) => {
+      log.push({ type: "response", url: resp.url(), status: resp.status() });
+    });
+
+    await runWithTimeout(
+      page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
+      30000,
+      browser
+    );
+
+    await page.waitForTimeout(10000);
+    await browser.close();
+
+    res.json({ url: targetUrl, log });
+  } catch (err) {
+    if (browser) await browser.close();
+    res.json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
