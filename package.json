@@ -4,11 +4,12 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "postinstall": "npx puppeteer browsers install chrome",
+    "postinstall": "npx @puppeteer/browsers install chrome@stable --path=.local-chromium",
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.19.0",
-    "puppeteer": "^22.10.0"
+    "puppeteer-core": "^22.10.0",
+    "@puppeteer/browsers": "^2.2.3"
   }
 }
