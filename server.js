@@ -21,7 +21,8 @@ app.get("/getm3u8", async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: puppeteer.executablePath()  // ✅ ensures Render finds Chrome
     });
 
     const page = await browser.newPage();
