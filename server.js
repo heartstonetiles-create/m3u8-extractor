@@ -13,8 +13,8 @@ app.get("/", (req, res) => {
 
 app.get("/getm3u8", async (req, res) => {
   const targetUrl = req.query.url;
-  const raw = req.query.raw === "1";
-  const force = req.query.force === "1";
+  const raw = req.query.raw === "1";    // JSON debug mode
+  const force = req.query.force === "1"; // Force always return .m3u8 file
 
   if (!targetUrl) return res.json({ error: "Missing ?url parameter" });
 
@@ -26,6 +26,13 @@ app.get("/getm3u8", async (req, res) => {
       headless: chromium.headless,
     });
     const page = await browser.newPage();
+
+    // Debug hooks
+    page.on("console", (msg) => console.log("PAGE LOG:", msg.text()));
+    page.on("request", (req) => console.log("REQ:", req.url()));
+    page.on("response", (resp) =>
+      console.log("RES:", resp.url(), resp.status())
+    );
 
     await page.setExtraHTTPHeaders({
       "User-Agent":
@@ -39,42 +46,48 @@ app.get("/getm3u8", async (req, res) => {
     function captureRequests(pageOrFrame) {
       pageOrFrame.on("request", (req) => {
         const url = req.url();
-        console.log("REQ:", url);
-
         if (url.includes(".m3u8")) m3u8Found = url;
         if (url.includes(".ts")) tsSegments.push(url);
       });
     }
 
     captureRequests(page);
+
+    console.log("Navigating to:", targetUrl);
     await page.goto(targetUrl, {
-      waitUntil: "networkidle2",
-      timeout: 60000,
+      waitUntil: "domcontentloaded", // ⚡ more forgiving
+      timeout: 30000,
     });
 
+    // Capture iframe requests too
     page.frames().forEach((frame) => captureRequests(frame));
 
     // Try clicking play button
     try {
       await page.evaluate(() => {
-        const btn = document.querySelector(
-          "button[aria-label='Play'], .vjs-big-play-button, .play, video"
-        );
+        const btn =
+          document.querySelector(
+            "button[aria-label='Play'], .vjs-big-play-button, .play, video"
+          );
         if (btn) btn.click();
       });
     } catch (e) {
       console.log("⚠️ No play button found");
     }
 
+    // Give the stream some time to load
     await page.waitForTimeout(20000);
+
     await browser.close();
 
+    // JSON debug mode
     if (raw) {
       if (m3u8Found) return res.json({ m3u8: m3u8Found });
       if (tsSegments.length > 0) return res.json({ ts: tsSegments });
       return res.json({ error: "No .m3u8 or .ts links detected" });
     }
 
+    // Force always return .m3u8 text
     if (force) {
       const playlist = [
         "#EXTM3U",
@@ -100,6 +113,7 @@ app.get("/getm3u8", async (req, res) => {
       return res.send(playlist.join("\n"));
     }
 
+    // Normal mode
     if (m3u8Found) {
       res.redirect(m3u8Found);
     } else if (tsSegments.length > 0) {
@@ -127,46 +141,7 @@ app.get("/getm3u8", async (req, res) => {
     }
   } catch (err) {
     if (browser) await browser.close();
-    res.json({ error: err.message });
-  }
-});
-
-app.get("/debug", async (req, res) => {
-  const targetUrl = req.query.url;
-  if (!targetUrl) return res.json({ error: "Missing ?url parameter" });
-
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
-    });
-
-    const page = await browser.newPage();
-    await page.setExtraHTTPHeaders({
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36",
-      Referer: targetUrl,
-    });
-
-    const log = [];
-
-    page.on("request", (req) => {
-      log.push({ type: "request", url: req.url(), method: req.method() });
-    });
-
-    page.on("response", (resp) => {
-      log.push({ type: "response", url: resp.url(), status: resp.status() });
-    });
-
-    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForTimeout(10000);
-    await browser.close();
-
-    res.json({ url: targetUrl, log });
-  } catch (err) {
-    if (browser) await browser.close();
+    console.error("❌ ERROR:", err);
     res.json({ error: err.message });
   }
 });
