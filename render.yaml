@@ -3,9 +3,12 @@ services:
     name: m3u8-extractor
     env: node
     plan: free
-    buildCommand: "yarn install"
-    startCommand: "yarn start"
+    buildCommand: |
+      yarn install
+      yarn build
+    startCommand: yarn start
     envVars:
-      - key: NODE_ENV
-        value: production
-    autoDeploy: true
+      - key: NODE_VERSION
+        value: 20
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/.cache/puppeteer
