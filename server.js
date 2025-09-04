@@ -1,12 +1,11 @@
 import express from "express";
-import puppeteer from "puppeteer-core";
-import chromium from "chromium";
+import puppeteer from "puppeteer";
 
 const app = express();
 
 app.get("/", (req, res) => {
   res.json({
-    message: "✅ M3U8 Extractor running with puppeteer-core + chromium",
+    message: "✅ M3U8 Extractor running with puppeteer",
     usage: "GET /getm3u8?url=YOUR_EMBED_URL[&raw=1][&force=1]"
   });
 });
@@ -22,8 +21,8 @@ app.get("/getm3u8", async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: chromium.path, // ✅ use chromium binary
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: puppeteer.executablePath() // ✅ ensures Render finds Chrome
     });
 
     const page = await browser.newPage();
@@ -57,15 +56,19 @@ app.get("/getm3u8", async (req, res) => {
       console.log("⚠️ No play button found");
     }
 
-    await page.waitForTimeout(15000);
+    // ⏳ Replacement for deprecated page.waitForTimeout
+    await new Promise((r) => setTimeout(r, 15000));
+
     await browser.close();
 
+    // raw mode
     if (raw) {
       if (m3u8Found) return res.json({ m3u8: m3u8Found });
       if (tsSegments.length > 0) return res.json({ ts: tsSegments });
       return res.json({ error: "No .m3u8 or .ts links detected" });
     }
 
+    // force mode → build fake playlist
     if (force) {
       const playlist = [
         "#EXTM3U",
@@ -89,6 +92,7 @@ app.get("/getm3u8", async (req, res) => {
       return res.send(playlist.join("\n"));
     }
 
+    // default behavior
     if (m3u8Found) {
       res.redirect(m3u8Found);
     } else if (tsSegments.length > 0) {
