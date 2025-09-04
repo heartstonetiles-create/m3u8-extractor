@@ -6,138 +6,55 @@ const app = express();
 
 app.get("/", (req, res) => {
   res.json({
-    message: "M3U8 Extractor running with puppeteer-core + chromium",
+    message: "M3U8 Extractor running with puppeteer-core",
     usage: "GET /getm3u8?url=YOUR_EMBED_URL[&raw=1][&force=1]",
   });
 });
 
 app.get("/getm3u8", async (req, res) => {
   const targetUrl = req.query.url;
-  const raw = req.query.raw === "1";    // JSON debug mode
-  const force = req.query.force === "1"; // Force always return .m3u8 file
-
   if (!targetUrl) return res.json({ error: "Missing ?url parameter" });
 
   let browser;
   try {
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
-    });
-    const page = await browser.newPage();
+    let executablePath = await chromium.executablePath;
 
-    // Debug hooks
-    page.on("console", (msg) => console.log("PAGE LOG:", msg.text()));
-    page.on("request", (req) => console.log("REQ:", req.url()));
-    page.on("response", (resp) =>
-      console.log("RES:", resp.url(), resp.status())
-    );
-
-    await page.setExtraHTTPHeaders({
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36",
-      Referer: targetUrl,
-    });
-
-    let m3u8Found = null;
-    let tsSegments = [];
-
-    function captureRequests(pageOrFrame) {
-      pageOrFrame.on("request", (req) => {
-        const url = req.url();
-        if (url.includes(".m3u8")) m3u8Found = url;
-        if (url.includes(".ts")) tsSegments.push(url);
-      });
+    // ✅ Fallback for Render (non-Lambda)
+    if (!executablePath) {
+      executablePath = "/usr/bin/google-chrome-stable";
     }
 
-    captureRequests(page);
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      executablePath,
+      headless: true,
+    });
 
-    console.log("Navigating to:", targetUrl);
+    const page = await browser.newPage();
+
+    // Log requests for debugging
+    page.on("request", (req) => console.log("REQ:", req.url()));
+
     await page.goto(targetUrl, {
-      waitUntil: "domcontentloaded", // ⚡ more forgiving
+      waitUntil: "domcontentloaded",
       timeout: 30000,
     });
 
-    // Capture iframe requests too
-    page.frames().forEach((frame) => captureRequests(frame));
+    // Wait for a while to capture m3u8
+    await page.waitForTimeout(15000);
 
-    // Try clicking play button
-    try {
-      await page.evaluate(() => {
-        const btn =
-          document.querySelector(
-            "button[aria-label='Play'], .vjs-big-play-button, .play, video"
-          );
-        if (btn) btn.click();
-      });
-    } catch (e) {
-      console.log("⚠️ No play button found");
-    }
-
-    // Give the stream some time to load
-    await page.waitForTimeout(20000);
+    let m3u8Found = null;
+    page.on("request", (req) => {
+      const url = req.url();
+      if (url.includes(".m3u8")) m3u8Found = url;
+    });
 
     await browser.close();
 
-    // JSON debug mode
-    if (raw) {
-      if (m3u8Found) return res.json({ m3u8: m3u8Found });
-      if (tsSegments.length > 0) return res.json({ ts: tsSegments });
-      return res.json({ error: "No .m3u8 or .ts links detected" });
-    }
-
-    // Force always return .m3u8 text
-    if (force) {
-      const playlist = [
-        "#EXTM3U",
-        "#EXT-X-VERSION:3",
-        "#EXT-X-TARGETDURATION:10",
-        "#EXT-X-MEDIA-SEQUENCE:0",
-      ];
-
-      if (m3u8Found) {
-        playlist.push(`#EXTINF:10.0,`);
-        playlist.push(m3u8Found);
-      } else {
-        tsSegments.forEach((url) => {
-          playlist.push("#EXTINF:10.0,");
-          playlist.push(url);
-        });
-      }
-
-      playlist.push("#EXT-X-ENDLIST");
-
-      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-      res.setHeader("Content-Disposition", "inline; filename=generated.m3u8");
-      return res.send(playlist.join("\n"));
-    }
-
-    // Normal mode
     if (m3u8Found) {
-      res.redirect(m3u8Found);
-    } else if (tsSegments.length > 0) {
-      const playlist = [
-        "#EXTM3U",
-        "#EXT-X-VERSION:3",
-        "#EXT-X-TARGETDURATION:10",
-        "#EXT-X-MEDIA-SEQUENCE:0",
-      ];
-
-      tsSegments.forEach((url) => {
-        playlist.push("#EXTINF:10.0,");
-        playlist.push(url);
-      });
-
-      playlist.push("#EXT-X-ENDLIST");
-
-      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-      res.setHeader("Content-Disposition", "inline; filename=generated.m3u8");
-      res.send(playlist.join("\n"));
+      return res.json({ m3u8: m3u8Found });
     } else {
-      res.json({
-        error: "No .m3u8 or .ts links detected. Could be WebRTC or hidden deeper.",
-      });
+      return res.json({ error: "No .m3u8 link found" });
     }
   } catch (err) {
     if (browser) await browser.close();
