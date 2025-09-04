@@ -1,15 +1,17 @@
 {
   "name": "m3u8-extractor",
   "version": "1.0.0",
-  "main": "server.js",
   "type": "module",
+  "main": "server.js",
   "scripts": {
-    "postinstall": "npx @puppeteer/browsers install chrome@stable --path=.local-chromium",
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "express": "^4.19.0",
-    "puppeteer-core": "^22.10.0",
-    "@puppeteer/browsers": "^2.2.3"
+    "puppeteer": "22.10.0"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
