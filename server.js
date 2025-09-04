@@ -6,7 +6,7 @@ const app = express();
 app.get("/", (req, res) => {
   res.json({
     message: "✅ M3U8 Extractor running with puppeteer",
-    usage: "GET /getm3u8?url=YOUR_EMBED_URL[&raw=1][&force=1]",
+    usage: "GET /getm3u8?url=YOUR_EMBED_URL[&raw=1][&force=1]"
   });
 });
 
@@ -21,14 +21,14 @@ app.get("/getm3u8", async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
 
     const page = await browser.newPage();
     await page.setExtraHTTPHeaders({
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36",
-      Referer: targetUrl,
+      Referer: targetUrl
     });
 
     let m3u8Found = null;
@@ -42,7 +42,7 @@ app.get("/getm3u8", async (req, res) => {
 
     await page.goto(targetUrl, {
       waitUntil: "domcontentloaded",
-      timeout: 30000,
+      timeout: 30000
     });
 
     try {
@@ -51,25 +51,27 @@ app.get("/getm3u8", async (req, res) => {
           document.querySelector("button[aria-label='Play'], .vjs-big-play-button, .play, video");
         if (btn) btn.click();
       });
-    } catch (e) {
+    } catch {
       console.log("⚠️ No play button found");
     }
 
     await page.waitForTimeout(15000);
     await browser.close();
 
+    // raw mode
     if (raw) {
       if (m3u8Found) return res.json({ m3u8: m3u8Found });
       if (tsSegments.length > 0) return res.json({ ts: tsSegments });
       return res.json({ error: "No .m3u8 or .ts links detected" });
     }
 
+    // force mode → build fake playlist
     if (force) {
       const playlist = [
         "#EXTM3U",
         "#EXT-X-VERSION:3",
         "#EXT-X-TARGETDURATION:10",
-        "#EXT-X-MEDIA-SEQUENCE:0",
+        "#EXT-X-MEDIA-SEQUENCE:0"
       ];
 
       if (m3u8Found) {
@@ -87,6 +89,7 @@ app.get("/getm3u8", async (req, res) => {
       return res.send(playlist.join("\n"));
     }
 
+    // default behavior
     if (m3u8Found) {
       res.redirect(m3u8Found);
     } else if (tsSegments.length > 0) {
@@ -94,7 +97,7 @@ app.get("/getm3u8", async (req, res) => {
         "#EXTM3U",
         "#EXT-X-VERSION:3",
         "#EXT-X-TARGETDURATION:10",
-        "#EXT-X-MEDIA-SEQUENCE:0",
+        "#EXT-X-MEDIA-SEQUENCE:0"
       ];
       tsSegments.forEach((url) => {
         playlist.push("#EXTINF:10.0,");
@@ -106,7 +109,7 @@ app.get("/getm3u8", async (req, res) => {
       res.send(playlist.join("\n"));
     } else {
       res.json({
-        error: "No .m3u8 or .ts links detected. Could be WebRTC or hidden deeper.",
+        error: "No .m3u8 or .ts links detected. Could be WebRTC or hidden deeper."
       });
     }
   } catch (err) {
