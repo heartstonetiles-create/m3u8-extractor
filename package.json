@@ -1,7 +1,7 @@
 {
   "name": "m3u8-extractor",
   "version": "1.0.0",
-  "description": "M3U8 extractor service with Puppeteer",
+  "description": "Extracts .m3u8 URLs using Puppeteer",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -9,6 +9,9 @@
   },
   "dependencies": {
     "express": "^4.19.0",
-    "puppeteer": "^24.1.1"
+    "puppeteer": "^22.10.0"
   },
   "engines": {
+    "node": ">=20"
+  }
+}
