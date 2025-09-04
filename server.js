@@ -34,11 +34,8 @@ app.get("/getm3u8", async (req, res) => {
     let m3u8Found = null;
     let tsSegments = [];
 
-    // Capture requests
     page.on("request", (req) => {
       const url = req.url();
-      console.log("REQ:", url);
-
       if (url.includes(".m3u8")) m3u8Found = url;
       if (url.includes(".ts")) tsSegments.push(url);
     });
@@ -48,7 +45,6 @@ app.get("/getm3u8", async (req, res) => {
       timeout: 30000,
     });
 
-    // Try clicking play
     try {
       await page.evaluate(() => {
         const btn =
@@ -62,14 +58,12 @@ app.get("/getm3u8", async (req, res) => {
     await page.waitForTimeout(15000);
     await browser.close();
 
-    // JSON debug mode
     if (raw) {
       if (m3u8Found) return res.json({ m3u8: m3u8Found });
       if (tsSegments.length > 0) return res.json({ ts: tsSegments });
       return res.json({ error: "No .m3u8 or .ts links detected" });
     }
 
-    // Force always return m3u8
     if (force) {
       const playlist = [
         "#EXTM3U",
@@ -93,7 +87,6 @@ app.get("/getm3u8", async (req, res) => {
       return res.send(playlist.join("\n"));
     }
 
-    // Normal mode
     if (m3u8Found) {
       res.redirect(m3u8Found);
     } else if (tsSegments.length > 0) {
