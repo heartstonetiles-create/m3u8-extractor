@@ -1,36 +1,12 @@
 import express from "express";
-import puppeteer from "puppeteer";
-import fs from "fs";
+import puppeteer from "puppeteer-core";
+import chromium from "chromium";
 
 const app = express();
 
-function resolveChromePath() {
-  try {
-    const p = puppeteer.executablePath?.();
-    if (p && fs.existsSync(p)) return p;
-  } catch {
-    // ignore
-  }
-  const candidates = [
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/google-chrome",
-    "/opt/google/chrome/chrome",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium"
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
-}
-
-const CHROME_PATH = resolveChromePath();
-console.log("🔎 Chrome path:", CHROME_PATH);
-
 app.get("/", (req, res) => {
   res.json({
-    message: "✅ M3U8 Extractor running with puppeteer",
-    chromePath: CHROME_PATH,
+    message: "✅ M3U8 Extractor running with puppeteer-core + chromium",
     usage: "GET /getm3u8?url=YOUR_EMBED_URL[&raw=1][&force=1]"
   });
 });
@@ -41,22 +17,13 @@ app.get("/getm3u8", async (req, res) => {
   const force = req.query.force === "1";
 
   if (!targetUrl) return res.json({ error: "Missing ?url parameter" });
-  if (!CHROME_PATH) {
-    return res.json({
-      error: "❌ No Chrome binary found. Please install it or set CHROME_PATH."
-    });
-  }
 
   let browser;
   try {
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: CHROME_PATH,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage"
-      ]
+      executablePath: chromium.path, // ✅ use chromium binary
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
 
     const page = await browser.newPage();
@@ -106,6 +73,7 @@ app.get("/getm3u8", async (req, res) => {
         "#EXT-X-TARGETDURATION:10",
         "#EXT-X-MEDIA-SEQUENCE:0"
       ];
+
       if (m3u8Found) {
         playlist.push(`#EXTINF:10.0,`);
         playlist.push(m3u8Found);
@@ -115,6 +83,7 @@ app.get("/getm3u8", async (req, res) => {
           playlist.push(url);
         });
       }
+
       playlist.push("#EXT-X-ENDLIST");
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       return res.send(playlist.join("\n"));
